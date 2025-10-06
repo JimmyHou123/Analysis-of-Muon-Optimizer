@@ -1,3 +1,5 @@
+[📄 Read the Project Report](Math_199_Final_Report.pdf)
+
 # BCAT: A Block Causal Transformer for PDE Foundation Models for Fluid Dynamics
 
 This repository contains code for the paper [BCAT: A Block Causal Transformer for PDE Foundation Models for Fluid Dynamics](https://www.arxiv.org/abs/2501.18972).
