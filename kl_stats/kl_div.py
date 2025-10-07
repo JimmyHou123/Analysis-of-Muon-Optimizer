@@ -15,9 +15,6 @@ from models.bcat import BCAT
 from utils.muon import Muon
 
 
-# -----------------------------
-# Config / Model / Data loaders
-# -----------------------------
 def load_config():
     with initialize(config_path="src/configs", version_base=None):
         return compose(
@@ -47,7 +44,7 @@ def build_model(cfg, device, ckpt_path):
         max_output_dim=cfg.data.max_output_dimension
     ).to(device)
 
-    # split parameters for Muon vs AdamW (kept for parity; not needed for our forward pass)
+    # split parameters for Muon vs AdamW (not needed for forward pass)
     named = [(n, p) for n, p in model.named_parameters() if p.requires_grad]
     muon_params, adamw_params = [], []
     for n, p in named:
@@ -65,7 +62,7 @@ def build_model(cfg, device, ckpt_path):
         adamw_eps=cfg.optim.get("eps", 1e-8),
     )
 
-    # load the checkpoint at user-provided path (robust to missing optimizer state)
+    # load the checkpoint at user-provided path
     print(f"Loading checkpoint from: {ckpt_path}")
     ckpt = torch.load(ckpt_path, map_location="cpu")
     model.load_state_dict(ckpt["model"])
@@ -101,9 +98,6 @@ def to_tensors(sample, t0, device):
     return data, times
 
 
-# -----------------------------
-# KL utilities
-# -----------------------------
 def _histogram(x: np.ndarray, bins: int = 256, range_: Tuple[float, float] | None = None) -> Tuple[np.ndarray, np.ndarray]:
     """Return normalized histogram probs and bin edges."""
     probs, edges = np.histogram(x, bins=bins, range=range_, density=False)
@@ -154,7 +148,6 @@ def kl_divergence_to_fitted_gaussian(x: np.ndarray, bins: int = 256, clip_pct: f
 
     mu  = float(np.mean(x))
     std = float(np.std(x, ddof=1))
-    # bin range: cover ±4σ around mu
     if std > 0:
         lo, hi = mu - 4.0 * std, mu + 4.0 * std
     else:
@@ -178,7 +171,7 @@ def kl_for_weights_with_logit(weights: np.ndarray, bins: int = 256, eps: float =
     w = weights[np.isfinite(weights)]
     if w.size == 0:
         return float("nan")
-    # keep ONLY (0,1), discard exact zeros from sparse attention to avoid mass pile at -inf
+    # keep ONLY (0,1), discard exact zeros from sparse attention
     w = w[(w > 0.0) & (w < 1.0)]
     if w.size == 0:
         return float("nan")
@@ -187,13 +180,9 @@ def kl_for_weights_with_logit(weights: np.ndarray, bins: int = 256, eps: float =
     return kl_divergence_to_fitted_gaussian(z, bins=bins, clip_pct=None)
 
 
-# -----------------------------
-# Forward + extraction + KL
-# -----------------------------
 def extract_layer_arrays(model: BCAT, data: torch.Tensor, times: torch.Tensor, layer_idx: int) -> Dict[str, np.ndarray]:
     """
-    Runs a forward pass (to populate cached tensors in the attention module),
-    then extracts arrays needed for statistics.
+    Runs a forward pas, then extracts arrays needed for statistics.
     Assumes your attention layer stores: last_scores, last_attn, last_out_proj.
     """
     with torch.no_grad():
@@ -218,7 +207,7 @@ def extract_layer_arrays(model: BCAT, data: torch.Tensor, times: torch.Tensor, l
 
 def compute_kls_for_layer(arrays: Dict[str, np.ndarray]) -> Dict[str, float]:
     """
-    Compute KL divergences to fitted Gaussian for each array type we have.
+    Compute KL divergences to fitted Gaussian for each array type.
     - 'scores' and 'out_proj' are on R already → direct KL to Gaussian.
     - 'weights' is on [0,1] → logit transform then KL to Gaussian.
     """
@@ -233,9 +222,6 @@ def compute_kls_for_layer(arrays: Dict[str, np.ndarray]) -> Dict[str, float]:
     return out
 
 
-# -----------------------------
-# Plotting helpers
-# -----------------------------
 def plot_grouped_bars(per_layer_results: Dict[str, Dict[int, Dict[str, float]]],
                       out_dir: str,
                       stat_key: str,
@@ -278,7 +264,6 @@ def plot_grouped_bars(per_layer_results: Dict[str, Dict[int, Dict[str, float]]],
 
 
 if __name__ == "__main__":
-    # ==== Defaults you can edit directly in code ====
     opt_names = ["AdamW", "Adan", "Muon"]
 
     ckpt_paths = [
@@ -290,11 +275,10 @@ if __name__ == "__main__":
     # Layers 0-11 inclusive
     layers = list(range(0, 12))
 
-    # Output folder (no prompt)
+    # Output folder
     out_dir = "kl_stats"
     os.makedirs(out_dir, exist_ok=True)
 
-    # Load everything fixed once
     cfg    = load_config()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     sample, t0 = load_sample(cfg)
