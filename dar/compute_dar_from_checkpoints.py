@@ -1,54 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-"""
-Relate non-Gaussianity (from checkpoint weights) to performance.
-
-Reads PyTorch checkpoints (.pt/.pth), extracts per-layer weight tensors
-(Q/K/V etc. or ANY 2-D weights matching include regex), computes:
-  - KL divergence to a *fitted Gaussian* (fit mu/std on the same tensor values)
-  - skewness, Pearson kurtosis, std
-  - Bimodality Coefficient (BC = (skew^2 + 1) / kurtosis)
-
-Then correlates these stats with validation metrics by step.
-
-USAGE EXAMPLES
---------------
-# Multiple optimizers, each with its own experiment directory of checkpoints:
-python relate_from_checkpoints.py \
-  --exp AdamW:/path/to/adamw_ckpts \
-  --exp Adan:/path/to/adan_ckpts \
-  --exp Muon:/path/to/muon_ckpts \
-  --ckpt-pattern "*.pth" \
-  --metrics /path/to/adamw_metrics.csv --metrics-tag AdamW \
-  --metrics /path/to/adan_metrics.csv  --metrics-tag Adan \
-  --metrics /path/to/muon_metrics.csv  --metrics-tag Muon \
-  --perf-col val_l2 \
-  --out-dir ./from_ckpt_correlations
-
-# Single combined metrics CSV with an 'optimizer' column:
-python relate_from_checkpoints.py \
-  --exp AdamW:/path/to/adamw_ckpts \
-  --exp Adan:/path/to/adan_ckpts \
-  --exp Muon:/path/to/muon_ckpts \
-  --ckpt-pattern "checkpoint_step*.pt" \
-  --metrics /path/to/all_metrics.csv \
-  --metrics-optimizer-col optimizer \
-  --perf-col val_l2 \
-  --out-dir ./from_ckpt_correlations
-
-NOTES
------
-- Default layer index parsing expects names like "...layers.{L}....".
-  Adjust --layer-regex if your model uses a different convention.
-- By default we include keys containing: q_proj|k_proj|v_proj|out_proj|attn|fc|linear|mlp|ffn
-  and exclude bias/LayerNorm/embedding vectors. You can override with regex flags.
-- If your perf is ACCURACY (higher better), change the optimizer-level aggregator
-  from min() to max() (see comment near end).
-
-Author: ChatGPT (GPT-5 Thinking)
-"""
-
 import argparse
 import re
 from pathlib import Path
@@ -59,9 +9,6 @@ import pandas as pd
 from scipy import stats
 import torch
 import matplotlib.pyplot as plt
-
-
-# ---------- Configurable parsing heuristics ----------
 
 # Extract step from filename: "..._step300000...", "...S300000...", "...300000.pth"
 STEP_PATTERNS = [
@@ -77,8 +24,6 @@ DEFAULT_LAYER_REGEX = r".*?layers\.(?P<layer>\d+).*"
 DEFAULT_INCLUDE = r"(q_proj|k_proj|v_proj|out_proj|attn|fc|linear|mlp|ffn)"
 DEFAULT_EXCLUDE = r"(bias$|norm|layernorm|ln\d*|embedding|embed|pos_enc|positional|time_embed)"
 
-
-# ---------- Helpers ----------
 
 def parse_step_from_filename(name: str) -> Optional[int]:
     for pat in STEP_PATTERNS:
@@ -117,7 +62,7 @@ def tensor_stats_non_gaussianity(x: torch.Tensor, nbins: int = 256) -> Tuple[flo
     kl = float(np.sum(p * (np.log(p) - np.log(q))))
 
     skew = stats.skew(x, bias=False)
-    kurt_pearson = stats.kurtosis(x, fisher=False, bias=False)  # normal -> 3.0
+    kurt_pearson = stats.kurtosis(x, fisher=False, bias=False)
     return kl, skew, kurt_pearson, std
 
 def bimodality_coeff(skew: float, kurt_pearson: float) -> float:
@@ -133,8 +78,6 @@ def guess_perf_col(df: pd.DataFrame, user: Optional[str]) -> str:
             return c
     raise ValueError("Cannot find performance column. Pass --perf-col explicitly.")
 
-
-# ---------- Main pipeline ----------
 
 def main():
     ap = argparse.ArgumentParser()
@@ -254,7 +197,6 @@ def main():
                 .mean().reset_index())
     per_ol.to_csv(out_dir / "ckpt_param_stats_by_layer.csv", index=False)
 
-    # ---------------- Metrics join & correlations ----------------
     # Load metrics
     metrics_frames: List[pd.DataFrame] = []
     if args.metrics and args.metrics_optimizer_col:
